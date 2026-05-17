@@ -1,0 +1,2 @@
+[console_scripts]
+dnabert-lite = dnabert_lite.cli:main

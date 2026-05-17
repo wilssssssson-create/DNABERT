@@ -1,0 +1,24 @@
+{
+  "positive_source": "promoter",
+  "pretrain_samples": 100000,
+  "raw_positive_regions": 47532,
+  "seed": 13,
+  "seq_length": 200,
+  "splits": {
+    "test": {
+      "background": 5845,
+      "positive": 5845,
+      "total": 11690
+    },
+    "train": {
+      "background": 10000,
+      "positive": 10000,
+      "total": 20000
+    },
+    "val": {
+      "background": 3602,
+      "positive": 3602,
+      "total": 7204
+    }
+  }
+}

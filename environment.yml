@@ -1,0 +1,14 @@
+name: dnabert-lite
+channels:
+  - conda-forge
+  - pytorch
+dependencies:
+  - python>=3.9
+  - numpy
+  - pytest
+  - scikit-learn
+  - matplotlib
+  - pytorch
+  - pip
+  - pip:
+      - -e .
