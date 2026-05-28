@@ -1,2 +1,0 @@
-model,test_csv,accuracy,precision,recall,f1,tp,tn,fp,fn,loss,steps,samples,roc_auc,pr_auc
-experiments/final_promoter_k6_len300/checkpoints/classifier_pretrained.pt,experiments/final_promoter_k6_len300/processed/test.csv,0.8202737382378101,0.769120184013801,0.9153122326775022,0.8358721974845715,5350.0,4239.0,1606.0,495.0,0.39552242235570656,244.0,11690.0,0.9226743775067487,0.9252192246842361

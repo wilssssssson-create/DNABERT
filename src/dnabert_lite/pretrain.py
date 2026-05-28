@@ -15,6 +15,7 @@ from torch.utils.data import DataLoader, Dataset
 
 from .model import DNABertLiteConfig, DNABertLiteForMaskedLM
 from .tokenizer import KmerTokenizer, mask_tokens
+from .training_utils import ProgressBar, parallelize_model, scalar_loss, unwrap_model
 
 
 class CsvSequenceDataset(Dataset):
@@ -139,7 +140,11 @@ def train_mlm(args: argparse.Namespace) -> dict[str, object]:
         attention_dropout_prob=args.dropout,
         pad_token_id=tokenizer.pad_id,
     )
-    model = DNABertLiteForMaskedLM(config).to(device)
+    model, gpu_count = parallelize_model(
+        DNABertLiteForMaskedLM(config),
+        device,
+        use_multi_gpu=getattr(args, "multi_gpu", True),
+    )
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
 
     history: list[dict[str, float | int]] = []
@@ -147,11 +152,16 @@ def train_mlm(args: argparse.Namespace) -> dict[str, object]:
     for epoch in range(1, args.epochs + 1):
         total_loss = 0.0
         total_steps = 0
+        progress = ProgressBar(
+            len(dataloader),
+            f"MLM epoch {epoch}/{args.epochs}",
+            enabled=getattr(args, "progress", True),
+        )
         for batch in dataloader:
             batch = {key: value.to(device) for key, value in batch.items()}
             optimizer.zero_grad(set_to_none=True)
             output = model(**batch)
-            loss = output["loss"]
+            loss = scalar_loss(output["loss"])
             loss.backward()
             if args.max_grad_norm > 0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
@@ -159,6 +169,8 @@ def train_mlm(args: argparse.Namespace) -> dict[str, object]:
 
             total_loss += float(loss.detach().cpu())
             total_steps += 1
+            progress.update(loss=total_loss / total_steps)
+        progress.close()
 
         average_loss = total_loss / max(1, total_steps)
         epoch_summary = {"epoch": epoch, "steps": total_steps, "loss": average_loss}
@@ -167,9 +179,10 @@ def train_mlm(args: argparse.Namespace) -> dict[str, object]:
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    checkpoint_model = unwrap_model(model)
     checkpoint = {
-        "model_state_dict": model.state_dict(),
-        "encoder_state_dict": model.encoder.state_dict(),
+        "model_state_dict": checkpoint_model.state_dict(),
+        "encoder_state_dict": checkpoint_model.encoder.state_dict(),
         "config": asdict(config),
         "tokenizer": {"k": tokenizer.k, "vocab": tokenizer.vocab},
         "history": history,
@@ -180,6 +193,7 @@ def train_mlm(args: argparse.Namespace) -> dict[str, object]:
     summary = {
         "checkpoint": str(out_path),
         "device": str(device),
+        "gpu_count": gpu_count,
         "num_sequences": len(dataset),
         "epochs": args.epochs,
         "final_loss": history[-1]["loss"] if history else None,
@@ -204,5 +218,7 @@ def add_pretrain_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--dropout", type=float, default=0.1)
     parser.add_argument("--max-grad-norm", type=float, default=1.0)
     parser.add_argument("--device", default="auto")
+    parser.add_argument("--multi-gpu", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--progress", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--seed", type=int, default=13)
     parser.add_argument("--limit-samples", type=int, default=None)

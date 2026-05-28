@@ -16,6 +16,7 @@ from torch.utils.data import DataLoader, Dataset
 from .model import DNABertLiteConfig, DNABertLiteForSequenceClassification
 from .pretrain import resolve_device, set_seed
 from .tokenizer import KmerTokenizer
+from .training_utils import ProgressBar, parallelize_model, scalar_loss, unwrap_model
 
 
 class CsvClassificationDataset(Dataset):
@@ -104,7 +105,7 @@ def classification_metrics(logits: torch.Tensor, labels: torch.Tensor) -> dict[s
 
 
 def evaluate_classifier(
-    model: DNABertLiteForSequenceClassification,
+    model: torch.nn.Module,
     dataloader: DataLoader,
     device: torch.device,
 ) -> dict[str, float]:
@@ -118,7 +119,8 @@ def evaluate_classifier(
         for batch in dataloader:
             batch = {key: value.to(device) for key, value in batch.items()}
             output = model(**batch)
-            total_loss += float(output["loss"].detach().cpu())
+            loss = scalar_loss(output["loss"])
+            total_loss += float(loss.detach().cpu())
             steps += 1
             all_logits.append(output["logits"].detach().cpu())
             all_labels.append(batch["labels"].detach().cpu())
@@ -220,7 +222,11 @@ def train_classifier(args: argparse.Namespace) -> dict[str, object]:
     if args.pretrained:
         checkpoint = load_pretrained_checkpoint(args.pretrained)
         model.encoder.load_state_dict(checkpoint["encoder_state_dict"])
-    model.to(device)
+    model, gpu_count = parallelize_model(
+        model,
+        device,
+        use_multi_gpu=getattr(args, "multi_gpu", True),
+    )
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
     history: list[dict[str, object]] = []
@@ -233,11 +239,16 @@ def train_classifier(args: argparse.Namespace) -> dict[str, object]:
     for epoch in range(1, args.epochs + 1):
         total_loss = 0.0
         total_steps = 0
+        progress = ProgressBar(
+            len(train_loader),
+            f"Fine-tune epoch {epoch}/{args.epochs}",
+            enabled=getattr(args, "progress", True),
+        )
         for batch in train_loader:
             batch = {key: value.to(device) for key, value in batch.items()}
             optimizer.zero_grad(set_to_none=True)
             output = model(**batch)
-            loss = output["loss"]
+            loss = scalar_loss(output["loss"])
             loss.backward()
             if args.max_grad_norm > 0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
@@ -245,6 +256,8 @@ def train_classifier(args: argparse.Namespace) -> dict[str, object]:
 
             total_loss += float(loss.detach().cpu())
             total_steps += 1
+            progress.update(loss=total_loss / total_steps)
+        progress.close()
 
         train_loss = total_loss / max(1, total_steps)
         val_metrics = evaluate_classifier(model, val_loader, device)
@@ -259,19 +272,20 @@ def train_classifier(args: argparse.Namespace) -> dict[str, object]:
             best_metric = val_metrics[args.best_metric]
             best_epoch = epoch
             best_val_metrics = dict(val_metrics)
-            best_state_dict = copy.deepcopy(model.state_dict())
+            best_state_dict = copy.deepcopy(unwrap_model(model).state_dict())
         print(json.dumps(epoch_summary, sort_keys=True))
 
     if best_state_dict is not None:
-        model.load_state_dict(best_state_dict)
+        unwrap_model(model).load_state_dict(best_state_dict)
     final_val_metrics = evaluate_classifier(model, val_loader, device)
     final_test_metrics = evaluate_classifier(model, test_loader, device) if test_loader is not None else None
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    checkpoint_model = unwrap_model(model)
     checkpoint = {
-        "model_state_dict": model.state_dict(),
-        "encoder_state_dict": model.encoder.state_dict(),
+        "model_state_dict": checkpoint_model.state_dict(),
+        "encoder_state_dict": checkpoint_model.encoder.state_dict(),
         "config": asdict(config),
         "tokenizer": {"k": tokenizer.k, "vocab": tokenizer.vocab},
         "history": history,
@@ -289,6 +303,7 @@ def train_classifier(args: argparse.Namespace) -> dict[str, object]:
     summary = {
         "checkpoint": str(out_path),
         "device": str(device),
+        "gpu_count": gpu_count,
         "pretrained": args.pretrained,
         "train_samples": len(train_dataset),
         "val_samples": len(val_dataset),
@@ -324,5 +339,7 @@ def add_finetune_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--max-grad-norm", type=float, default=1.0)
     parser.add_argument("--best-metric", choices=("f1", "accuracy", "precision", "recall"), default="f1")
     parser.add_argument("--device", default="auto")
+    parser.add_argument("--multi-gpu", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--progress", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--seed", type=int, default=13)
     parser.add_argument("--limit-samples", type=int, default=None)

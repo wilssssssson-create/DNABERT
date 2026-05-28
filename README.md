@@ -1,17 +1,25 @@
 # DNABERT-lite
 
-Teaching-oriented DNABERT-style encoder project for DNA k-mer representation
+A teaching-oriented DNABERT-style encoder project for DNA k-mer representation
 learning and promoter/enhancer classification.
+
+The project implements the main pieces needed for a compact DNABERT-like
+pipeline: k-mer tokenization, positional encoding, multi-head self-attention,
+BERT-style encoder blocks, masked language modeling pretraining, downstream
+classification, k-mer logistic regression baseline, evaluation, and embedding
+PCA visualization.
 
 ## Current status
 
-This first version contains the project skeleton, a k-mer tokenizer, and a
-directly runnable preprocessing CLI that converts downloaded hg38 + BED files
-into small CSV datasets.
+The repository contains runnable code, tests, and experiment scripts. Large raw
+genome/regulatory-element files are intentionally not committed to git, so a
+fresh clone needs local raw data placed under `data/raw/` before preprocessing.
+Some processed data and experiment outputs may exist in a local working copy,
+but they should be treated as generated artifacts rather than source files.
 
 ## Data layout
 
-Expected raw data files:
+Expected local raw data files:
 
 ```text
 data/raw/hg38/hg38.fa
@@ -20,12 +28,17 @@ data/raw/encode_screen/GRCh38-cCREs.ELS.bed
 data/raw/fantom5/F5.hg38.enhancers.bed.gz
 ```
 
+These files are too large for normal git tracking. Download them from the
+corresponding public sources, or copy them from local storage, then keep the same
+relative paths. The preprocessing step will generate smaller CSV files such as
+`train.csv`, `val.csv`, `test.csv`, and `pretrain.csv`.
+
 ## Install
 
 From this directory:
 
 ```bash
-python3 -m pip install -e .
+python3 -m pip install -e '.[ml]'
 ```
 
 If you do not want to install yet, run commands with:
@@ -192,6 +205,11 @@ PYTHONPATH=src python3 scripts/run_experiment.py \
   --profile medium \
   --out-dir experiments/promoter_medium
 ```
+
+For the course report, see [EXPERIMENT_GUIDE.md](EXPERIMENT_GUIDE.md). It gives
+a recommended experiment plan, including the main promoter-vs-background
+experiment, pretraining comparison, k-mer/sequence-length ablations, optional
+enhancer/regulatory extensions, and copy-paste runnable commands.
 
 ## Embedding PCA
 

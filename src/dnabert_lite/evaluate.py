@@ -13,6 +13,7 @@ from torch.utils.data import DataLoader
 from .finetune import ClassificationCollator, CsvClassificationDataset, classification_metrics
 from .model import DNABertLiteConfig, DNABertLiteForSequenceClassification
 from .pretrain import resolve_device
+from .training_utils import scalar_loss
 from .tokenizer import KmerTokenizer
 
 
@@ -82,7 +83,8 @@ def collect_predictions(
         for batch in dataloader:
             batch = {key: value.to(device) for key, value in batch.items()}
             output = model(**batch)
-            total_loss += float(output["loss"].detach().cpu())
+            loss = scalar_loss(output["loss"])
+            total_loss += float(loss.detach().cpu())
             steps += 1
             all_logits.append(output["logits"].detach().cpu())
             all_labels.append(batch["labels"].detach().cpu())

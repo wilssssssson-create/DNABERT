@@ -1,2 +1,0 @@
-model,test_csv,accuracy,precision,recall,f1,tp,tn,fp,fn,loss,steps,samples,roc_auc,pr_auc
-experiments/promoter_large_more_data/checkpoints/classifier_random.pt,experiments/promoter_large_more_data/processed/test.csv,0.816852010265184,0.7737215489210759,0.8956372968349017,0.8302275790976131,5235.0,4314.0,1531.0,610.0,0.41793613807588326,244.0,11690.0,0.911803995577219,0.9135821881493048
